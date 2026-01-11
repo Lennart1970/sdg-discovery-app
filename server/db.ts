@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { 
   InsertUser, 
   users,
@@ -12,15 +13,19 @@ import {
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _client: postgres.Sql | null = null;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // Create postgres client
+      _client = postgres(process.env.DATABASE_URL);
+      _db = drizzle(_client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
+      _client = null;
     }
   }
   return _db;
@@ -76,7 +81,9 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    // Changed from onDuplicateKeyUpdate to onConflictDoUpdate (PostgreSQL syntax)
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
       set: updateSet,
     });
   } catch (error) {
@@ -150,7 +157,7 @@ export async function insertChallenge(challenge: InsertChallenge) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { challenges } = await import("../drizzle/schema");
-  const result = await db.insert(challenges).values(challenge);
+  const result = await db.insert(challenges).values(challenge).returning();
   return result;
 }
 
@@ -159,12 +166,12 @@ export async function insertTechDiscoveryRun(run: InsertTechDiscoveryRun): Promi
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { techDiscoveryRuns } = await import("../drizzle/schema");
-  const result: any = await db.insert(techDiscoveryRuns).values(run);
-  // Result is an array: [{ insertId, affectedRows, ... }, null]
-  const insertId = result[0]?.insertId;
+  // PostgreSQL uses .returning() instead of insertId
+  const result = await db.insert(techDiscoveryRuns).values(run).returning({ id: techDiscoveryRuns.id });
+  const insertId = result[0]?.id;
   if (!insertId) {
     console.error("Insert result:", JSON.stringify(result));
-    throw new Error("Failed to get insertId from tech_discovery_runs insert");
+    throw new Error("Failed to get id from tech_discovery_runs insert");
   }
   return Number(insertId);
 }

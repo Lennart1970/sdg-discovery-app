@@ -1,7 +1,8 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { z } from "zod";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -17,12 +18,203 @@ export const appRouter = router({
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  // Organizations
+  organizations: router({
+    list: publicProcedure.query(async () => {
+      const { listOrganizations } = await import("./db");
+      return listOrganizations();
+    }),
+  }),
+
+  // Challenges
+  challenges: router({
+    list: publicProcedure.query(async ({ ctx }) => {
+      const { listChallenges } = await import("./db");
+      return listChallenges(ctx.user?.id);
+    }),
+    get: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const { getChallengeById } = await import("./db");
+      return getChallengeById(input.id);
+    }),
+    extract: protectedProcedure
+      .input(
+        z.object({
+          text: z.string(),
+          sourceOrg: z.string().optional(),
+          sourceUrl: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { extractChallenges } = await import("./agents/challengeExtractorAgent");
+        const { insertChallenge } = await import("./db");
+        const { logAgentInteraction, createSuccessLog, createErrorLog } = await import(
+          "./agents/logger"
+        );
+
+        try {
+          const { result, rawPrompt, rawResponse } = await extractChallenges(input.text, {
+            sourceOrg: input.sourceOrg,
+            sourceUrl: input.sourceUrl,
+          });
+
+          // Log successful extraction
+          logAgentInteraction(
+            createSuccessLog(
+              "challenge_extractor",
+              "extract_challenges",
+              "gpt-4o-mini",
+              rawPrompt,
+              rawResponse,
+              {
+                userId: ctx.user.id,
+                sourceOrg: input.sourceOrg,
+                challengeCount: result.challenges.length,
+              }
+            )
+          );
+
+          // Store challenges in database
+          const insertedIds = [];
+          for (const challenge of result.challenges) {
+            const insertResult = await insertChallenge({
+              userId: ctx.user.id,
+              title: challenge.title,
+              statement: challenge.statement,
+              sdgGoals: challenge.sdg_goals,
+              geography: challenge.geography,
+              targetGroups: challenge.target_groups,
+              sectors: challenge.sectors,
+              sourceUrl: input.sourceUrl,
+              sourceOrg: input.sourceOrg,
+              confidence: challenge.confidence,
+            });
+            insertedIds.push(insertResult);
+          }
+
+          return {
+            success: true,
+            challenges: result.challenges,
+            insertedIds,
+          };
+        } catch (error) {
+          // Log error
+          logAgentInteraction(
+            createErrorLog(
+              "challenge_extractor",
+              "extract_challenges",
+              "gpt-4o-mini",
+              input.text.substring(0, 500),
+              error instanceof Error ? error.message : "Unknown error",
+              { userId: ctx.user.id }
+            )
+          );
+          throw error;
+        }
+      }),
+  }),
+
+  // Technology Paths
+  techPaths: router({
+    discover: protectedProcedure
+      .input(
+        z.object({
+          challengeId: z.number(),
+          budgetConstraintEur: z.number().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { discoverTechnologyPaths } = await import("./agents/techDiscoveryAgent");
+        const { getChallengeById, insertTechDiscoveryRun, insertTechPath, updateTechDiscoveryRunStatus } =
+          await import("./db");
+        const { logAgentInteraction, createSuccessLog, createErrorLog } = await import(
+          "./agents/logger"
+        );
+
+        // Get challenge
+        const challenge = await getChallengeById(input.challengeId);
+        if (!challenge) {
+          throw new Error("Challenge not found");
+        }
+
+        // Create discovery run record
+        const runId = await insertTechDiscoveryRun({
+          challengeId: input.challengeId,
+          userId: ctx.user.id,
+          modelUsed: "gpt-4o-mini",
+          budgetConstraintEur: input.budgetConstraintEur || 10000,
+          status: "in_progress",
+        });
+
+        try {
+          const { result, rawPrompt, rawResponse } = await discoverTechnologyPaths(challenge, {
+            budgetConstraintEur: input.budgetConstraintEur,
+          });
+
+          // Log successful discovery
+          logAgentInteraction(
+            createSuccessLog(
+              "technology_discovery",
+              "discover_paths",
+              "gpt-4o-mini",
+              rawPrompt,
+              rawResponse,
+              {
+                userId: ctx.user.id,
+                challengeId: input.challengeId,
+                pathCount: result.technology_paths.length,
+              }
+            )
+          );
+
+          // Update run with results
+          await updateTechDiscoveryRunStatus(runId, "completed");
+
+          // Store technology paths
+          for (let i = 0; i < result.technology_paths.length; i++) {
+            const path = result.technology_paths[i]!;
+            await insertTechPath({
+              runId,
+              challengeId: input.challengeId,
+              pathName: path.path_name,
+              pathOrder: i + 1,
+              principlesUsed: JSON.stringify(path.principles_used),
+              technologyClasses: JSON.stringify(path.technology_classes),
+              whyPlausible: path.why_plausible,
+              estimatedCostBandEur: path.estimated_cost_band_eur,
+              risksAndUnknowns: JSON.stringify(path.risks_and_unknowns),
+            });
+          }
+
+          return {
+            success: true,
+            runId,
+            result,
+          };
+        } catch (error) {
+          // Log error and update run status
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          await updateTechDiscoveryRunStatus(runId, "failed", errorMessage);
+
+          logAgentInteraction(
+            createErrorLog(
+              "technology_discovery",
+              "discover_paths",
+              "gpt-4o-mini",
+              `Challenge: ${challenge.title}`,
+              errorMessage,
+              { userId: ctx.user.id, challengeId: input.challengeId }
+            )
+          );
+          throw error;
+        }
+      }),
+    listByChallengeId: publicProcedure
+      .input(z.object({ challengeId: z.number() }))
+      .query(async ({ input }) => {
+        const { getTechPathsByChallengeId } = await import("./db");
+        return getTechPathsByChallengeId(input.challengeId);
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

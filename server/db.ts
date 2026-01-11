@@ -1,6 +1,14 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { 
+  InsertUser, 
+  users,
+  InsertOrganization,
+  InsertSourceFeed,
+  InsertChallenge,
+  InsertTechDiscoveryRun,
+  InsertTechPath
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +97,117 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Organizations
+export async function listOrganizations() {
+  const db = await getDb();
+  if (!db) return [];
+  const { organizations } = await import("../drizzle/schema");
+  return db.select().from(organizations);
+}
+
+export async function insertOrganization(org: InsertOrganization) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { organizations } = await import("../drizzle/schema");
+  await db.insert(organizations).values(org);
+}
+
+// Source Feeds
+export async function listSourceFeeds() {
+  const db = await getDb();
+  if (!db) return [];
+  const { sourceFeeds } = await import("../drizzle/schema");
+  return db.select().from(sourceFeeds);
+}
+
+export async function insertSourceFeed(feed: InsertSourceFeed) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { sourceFeeds } = await import("../drizzle/schema");
+  await db.insert(sourceFeeds).values(feed);
+}
+
+// Challenges
+export async function listChallenges(userId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const { challenges } = await import("../drizzle/schema");
+  if (userId) {
+    return db.select().from(challenges).where(eq(challenges.userId, userId));
+  }
+  return db.select().from(challenges);
+}
+
+export async function getChallengeById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const { challenges } = await import("../drizzle/schema");
+  const result = await db.select().from(challenges).where(eq(challenges.id, id)).limit(1);
+  return result[0];
+}
+
+export async function insertChallenge(challenge: InsertChallenge) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { challenges } = await import("../drizzle/schema");
+  const result = await db.insert(challenges).values(challenge);
+  return result;
+}
+
+// Tech Discovery Runs
+export async function insertTechDiscoveryRun(run: InsertTechDiscoveryRun): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { techDiscoveryRuns } = await import("../drizzle/schema");
+  const result: any = await db.insert(techDiscoveryRuns).values(run);
+  // Result is an array: [{ insertId, affectedRows, ... }, null]
+  const insertId = result[0]?.insertId;
+  if (!insertId) {
+    console.error("Insert result:", JSON.stringify(result));
+    throw new Error("Failed to get insertId from tech_discovery_runs insert");
+  }
+  return Number(insertId);
+}
+
+export async function updateTechDiscoveryRunStatus(
+  runId: number,
+  status: "completed" | "failed" | "in_progress",
+  errorMessage?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { techDiscoveryRuns } = await import("../drizzle/schema");
+  await db
+    .update(techDiscoveryRuns)
+    .set({ status, errorMessage })
+    .where(eq(techDiscoveryRuns.id, runId));
+}
+
+export async function getTechDiscoveryRunsByChallengeId(challengeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const { techDiscoveryRuns } = await import("../drizzle/schema");
+  return db.select().from(techDiscoveryRuns).where(eq(techDiscoveryRuns.challengeId, challengeId));
+}
+
+// Tech Paths
+export async function insertTechPath(path: InsertTechPath) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { techPaths } = await import("../drizzle/schema");
+  await db.insert(techPaths).values(path);
+}
+
+export async function getTechPathsByChallengeId(challengeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const { techPaths } = await import("../drizzle/schema");
+  return db.select().from(techPaths).where(eq(techPaths.challengeId, challengeId));
+}
+
+export async function getTechPathsByRunId(runId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const { techPaths } = await import("../drizzle/schema");
+  return db.select().from(techPaths).where(eq(techPaths.runId, runId));
+}

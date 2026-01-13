@@ -9,6 +9,8 @@ import Pathway from "./pages/Pathway";
 import Extract from "./pages/Extract";
 import Login from "./pages/Login";
 import Prompts from "./pages/Prompts";
+import Sources from "./pages/Sources";
+import Documents from "./pages/Documents";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -17,6 +19,8 @@ function Router() {
       <Route path={"/"} component={Journey} />
       <Route path="/login" component={Login} />
       <Route path="/prompts" component={Prompts} />
+      <Route path="/sources" component={Sources} />
+      <Route path="/documents" component={Documents} />
       <Route path="/pathway/:id" component={Pathway} />
       <Route path="/extract" component={Extract} />
       <Route path={"/404"} component={NotFound} />

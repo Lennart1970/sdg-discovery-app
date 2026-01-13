@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { 
@@ -12,7 +12,13 @@ import {
   InsertTechPath,
   promptTemplates,
   challengeExtractionRuns,
-  techDiscoveryRuns
+  techDiscoveryRuns,
+  sources,
+  sourceEndpoints,
+  documents,
+  type InsertSource,
+  type InsertSourceEndpoint,
+  type InsertDocument,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -305,4 +311,85 @@ export async function listPromptUsage(limit: number = 100) {
 
   normalized.sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0));
   return normalized.slice(0, limit);
+}
+
+// Sources
+export async function listSources() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(sources).orderBy(desc(sources.updatedAt));
+}
+
+export async function upsertSource(input: InsertSource) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .insert(sources)
+    .values(input)
+    .onConflictDoUpdate({
+      target: sources.baseUrl,
+      set: { ...input, updatedAt: new Date() } as any,
+    });
+}
+
+export async function listSourceEndpoints(sourceId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(sourceEndpoints)
+    .where(eq(sourceEndpoints.sourceId, sourceId))
+    .orderBy(desc(sourceEndpoints.priority), desc(sourceEndpoints.updatedAt));
+}
+
+export async function upsertSourceEndpoint(input: InsertSourceEndpoint) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .insert(sourceEndpoints)
+    .values(input)
+    .onConflictDoUpdate({
+      target: sourceEndpoints.endpointUrl,
+      set: { ...input, updatedAt: new Date() } as any,
+    });
+}
+
+// Documents
+export async function listDocuments(params?: { sourceId?: number; status?: string; limit?: number }) {
+  const db = await getDb();
+  if (!db) return [];
+  const limit = params?.limit ?? 200;
+  const clauses = [];
+  if (params?.sourceId) clauses.push(eq(documents.sourceId, params.sourceId));
+  if (params?.status) clauses.push(eq(documents.status, params.status as any));
+
+  const q = db.select().from(documents).orderBy(desc(documents.updatedAt)).limit(limit);
+  if (clauses.length === 0) return q;
+  if (clauses.length === 1) return q.where(clauses[0]!);
+  return q.where(and(...(clauses as any)));
+}
+
+export async function getDocumentById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function upsertDocumentByUrl(input: InsertDocument) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .insert(documents)
+    .values(input)
+    .onConflictDoUpdate({
+      target: documents.url,
+      set: { ...input, updatedAt: new Date() } as any,
+    });
+}
+
+export async function updateDocument(id: number, fields: Partial<InsertDocument>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(documents).set({ ...fields, updatedAt: new Date() } as any).where(eq(documents.id, id));
 }

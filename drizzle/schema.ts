@@ -1,8 +1,30 @@
-import { serial, pgEnum, pgTable, text, timestamp, varchar, integer, uniqueIndex } from "drizzle-orm/pg-core";
+import { serial, pgEnum, pgTable, text, timestamp, varchar, integer, uniqueIndex, boolean } from "drizzle-orm/pg-core";
 
 // Create enum types for PostgreSQL
 export const roleEnum = pgEnum("role", ["user", "admin"]);
 export const statusEnum = pgEnum("status", ["completed", "failed", "in_progress"]);
+export const docStatusEnum = pgEnum("doc_status", [
+  "discovered",
+  "downloaded",
+  "extracted",
+  "processed",
+  "failed",
+  "ignored",
+]);
+
+export const endpointTypeEnum = pgEnum("endpoint_type", ["rss", "sitemap", "html_list", "api", "manual_seed"]);
+export const orgTypeEnum = pgEnum("org_type", [
+  "un",
+  "eu",
+  "gov",
+  "ministry",
+  "foundation",
+  "corporate",
+  "ngo",
+  "bank",
+  "academic",
+]);
+export const trustLevelEnum = pgEnum("trust_level", ["high", "medium", "low"]);
 
 /**
  * Prompt templates table - versioned prompt registry (synced from repo)
@@ -30,6 +52,96 @@ export const promptTemplates = pgTable(
 
 export type PromptTemplate = typeof promptTemplates.$inferSelect;
 export type InsertPromptTemplate = typeof promptTemplates.$inferInsert;
+
+/**
+ * Sources (Europe + broader ecosystem): curated organizations/portals that publish SDG project reports.
+ */
+export const sources = pgTable("sources", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  orgType: orgTypeEnum("org_type").notNull(),
+  trustLevel: trustLevelEnum("trust_level").notNull().default("medium"),
+  baseUrl: varchar("base_url", { length: 1000 }).notNull(),
+  regionFocus: text("region_focus"), // e.g. JSON string ["NL","EU"]
+  tags: text("tags"), // e.g. JSON string ["education","innovation"]
+  crawlEnabled: boolean("crawl_enabled").notNull().default(false),
+  rateLimitMs: integer("rate_limit_ms").notNull().default(1500),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  baseUrlIdx: uniqueIndex("sources_base_url_idx").on(t.baseUrl),
+}));
+
+export type Source = typeof sources.$inferSelect;
+export type InsertSource = typeof sources.$inferInsert;
+
+/**
+ * Source endpoints: multiple entry points per source (sitemap/rss/list).
+ */
+export const sourceEndpoints = pgTable("source_endpoints", {
+  id: serial("id").primaryKey(),
+  sourceId: integer("source_id")
+    .notNull()
+    .references(() => sources.id),
+  endpointUrl: varchar("endpoint_url", { length: 1500 }).notNull(),
+  endpointType: endpointTypeEnum("endpoint_type").notNull(),
+  parserHint: text("parser_hint"),
+  enabled: boolean("enabled").notNull().default(true),
+  priority: integer("priority").notNull().default(100),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  endpointUrlIdx: uniqueIndex("source_endpoints_url_idx").on(t.endpointUrl),
+}));
+
+export type SourceEndpoint = typeof sourceEndpoints.$inferSelect;
+export type InsertSourceEndpoint = typeof sourceEndpoints.$inferInsert;
+
+/**
+ * Documents discovered/downloaded from endpoints.
+ * Stores extracted text in DB and can optionally store raw+text blobs in object storage.
+ */
+export const documents = pgTable(
+  "documents",
+  {
+    id: serial("id").primaryKey(),
+    sourceId: integer("source_id")
+      .notNull()
+      .references(() => sources.id),
+    sourceEndpointId: integer("source_endpoint_id").references(() => sourceEndpoints.id),
+
+    url: varchar("url", { length: 2000 }).notNull(),
+    canonicalUrl: varchar("canonical_url", { length: 2000 }),
+    title: varchar("title", { length: 800 }),
+    publishedAt: timestamp("published_at"),
+
+    contentType: varchar("content_type", { length: 200 }),
+    byteSize: integer("byte_size"),
+    sha256Bytes: varchar("sha256_bytes", { length: 64 }),
+    sha256Text: varchar("sha256_text", { length: 64 }),
+
+    storagePathRaw: varchar("storage_path_raw", { length: 1000 }),
+    storagePathText: varchar("storage_path_text", { length: 1000 }),
+
+    extractedText: text("extracted_text"),
+
+    status: docStatusEnum("status").notNull().default("discovered"),
+    errorMessage: text("error_message"),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    fetchedAt: timestamp("fetched_at"),
+    extractedAt: timestamp("extracted_at"),
+  },
+  (t) => ({
+    urlIdx: uniqueIndex("documents_url_idx").on(t.url),
+    shaBytesIdx: uniqueIndex("documents_sha256_bytes_idx").on(t.sha256Bytes),
+  })
+);
+
+export type Document = typeof documents.$inferSelect;
+export type InsertDocument = typeof documents.$inferInsert;
 
 /**
  * Core user table backing auth flow.

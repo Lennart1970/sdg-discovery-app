@@ -38,6 +38,11 @@ export default function Journey() {
                 <span className="text-sm text-muted-foreground">
                   {user?.name || user?.email}
                 </span>
+                <Link href="/sources">
+                  <Button size="sm" variant="outline">
+                    Sources
+                  </Button>
+                </Link>
                 <Link href="/prompts">
                   <Button size="sm" variant="outline">
                     Prompts

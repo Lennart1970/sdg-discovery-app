@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerSimpleAuthRoutes } from "./simpleAuth";
 import { syncPromptRegistryToDb } from "./prompts/registry";
+import { syncSourceSeedToDb } from "./sources/seed";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -33,6 +34,7 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   await syncPromptRegistryToDb();
+  await syncSourceSeedToDb();
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

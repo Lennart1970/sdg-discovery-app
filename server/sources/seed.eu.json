@@ -1,0 +1,21 @@
+[
+  {
+    "name": "Ministerie van Onderwijs, Cultuur en Wetenschap (OCW)",
+    "orgType": "ministry",
+    "trustLevel": "high",
+    "baseUrl": "https://www.rijksoverheid.nl/ministeries/ministerie-van-onderwijs-cultuur-en-wetenschap",
+    "regionFocus": ["NL", "EU"],
+    "tags": ["education", "culture", "science"],
+    "crawlEnabled": true,
+    "rateLimitMs": 1500,
+    "notes": "Seed source. Use sitemap discovery and filter for documents/reports.",
+    "endpoints": [
+      {
+        "endpointUrl": "https://www.rijksoverheid.nl/sitemap.xml",
+        "endpointType": "sitemap",
+        "priority": 10,
+        "parserHint": "{\"includePathPrefixes\":[\"/documenten/\",\"/publicaties/\",\"/rapporten/\"],\"excludePathPrefixes\":[\"/onderwerpen/\",\"/actueel/\"]}"
+      }
+    ]
+  }
+]

@@ -282,6 +282,134 @@ export const appRouter = router({
         };
       }),
   }),
+
+  // Sources + Documents (Europe-first SDG project report harvesting)
+  sources: router({
+    list: protectedProcedure.query(async () => {
+      const { listSources } = await import("./db");
+      return listSources();
+    }),
+    upsert: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          orgType: z.enum([
+            "un",
+            "eu",
+            "gov",
+            "ministry",
+            "foundation",
+            "corporate",
+            "ngo",
+            "bank",
+            "academic",
+          ]),
+          trustLevel: z.enum(["high", "medium", "low"]).optional(),
+          baseUrl: z.string().url(),
+          regionFocus: z.array(z.string()).optional(),
+          tags: z.array(z.string()).optional(),
+          crawlEnabled: z.boolean().optional(),
+          rateLimitMs: z.number().min(0).max(60000).optional(),
+          notes: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { upsertSource } = await import("./db");
+        await upsertSource({
+          name: input.name,
+          orgType: input.orgType,
+          trustLevel: input.trustLevel ?? "medium",
+          baseUrl: input.baseUrl,
+          regionFocus: input.regionFocus ? JSON.stringify(input.regionFocus) : null,
+          tags: input.tags ? JSON.stringify(input.tags) : null,
+          crawlEnabled: input.crawlEnabled ?? false,
+          rateLimitMs: input.rateLimitMs ?? 1500,
+          notes: input.notes ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any);
+        return { success: true } as const;
+      }),
+    listEndpoints: protectedProcedure
+      .input(z.object({ sourceId: z.number() }))
+      .query(async ({ input }) => {
+        const { listSourceEndpoints } = await import("./db");
+        return listSourceEndpoints(input.sourceId);
+      }),
+    upsertEndpoint: protectedProcedure
+      .input(
+        z.object({
+          sourceId: z.number(),
+          endpointUrl: z.string().url(),
+          endpointType: z.enum(["rss", "sitemap", "html_list", "api", "manual_seed"]),
+          parserHint: z.string().optional(),
+          enabled: z.boolean().optional(),
+          priority: z.number().min(0).max(10000).optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { upsertSourceEndpoint } = await import("./db");
+        await upsertSourceEndpoint({
+          sourceId: input.sourceId,
+          endpointUrl: input.endpointUrl,
+          endpointType: input.endpointType,
+          parserHint: input.parserHint ?? null,
+          enabled: input.enabled ?? true,
+          priority: input.priority ?? 100,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any);
+        return { success: true } as const;
+      }),
+    discoverFromEndpoint: protectedProcedure
+      .input(z.object({ endpointId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { discoverDocumentsFromEndpoint } = await import("./_core/sources/discovery");
+        return discoverDocumentsFromEndpoint(input.endpointId);
+      }),
+  }),
+
+  documents: router({
+    list: protectedProcedure
+      .input(
+        z
+          .object({
+            sourceId: z.number().optional(),
+            status: z.string().optional(),
+            limit: z.number().min(1).max(1000).optional(),
+          })
+          .optional()
+      )
+      .query(async ({ input }) => {
+        const { listDocuments } = await import("./db");
+        return listDocuments(input);
+      }),
+    get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const { getDocumentById } = await import("./db");
+      return getDocumentById(input.id);
+    }),
+    downloadAndExtract: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { downloadAndExtractDocument } = await import("./_core/sources/discovery");
+        return downloadAndExtractDocument(input.id);
+      }),
+    getExtractedText: adminProcedure
+      .input(z.object({ id: z.number(), maxChars: z.number().min(1000).max(200000).optional() }))
+      .query(async ({ input }) => {
+        const { getDocumentById } = await import("./db");
+        const doc = await getDocumentById(input.id);
+        if (!doc) return null;
+        const max = input.maxChars ?? 50000;
+        const text = doc.extractedText ?? "";
+        return {
+          id: doc.id,
+          chars: text.length,
+          text: text.slice(0, max),
+          truncated: text.length > max,
+        };
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

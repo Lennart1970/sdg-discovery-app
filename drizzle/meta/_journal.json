@@ -15,6 +15,13 @@
       "when": 1768148383500,
       "tag": "0001_pretty_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1768320046879,
+      "tag": "0002_rapid_wallflower",
+      "breakpoints": true
     }
   ]
 }

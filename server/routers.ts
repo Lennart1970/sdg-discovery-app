@@ -1,7 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 
 export const appRouter = router({
@@ -46,15 +46,29 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { extractChallenges } = await import("./agents/challengeExtractorAgent");
-        const { insertChallenge } = await import("./db");
+        const { insertChallenge, insertChallengeExtractionRun } = await import("./db");
         const { logAgentInteraction, createSuccessLog, createErrorLog } = await import(
           "./agents/logger"
         );
 
         try {
-          const { result, rawPrompt, rawResponse } = await extractChallenges(input.text, {
+          const { result, rawPrompt, rawResponse, promptKey, promptVersion, promptSha256 } =
+            await extractChallenges(input.text, {
             sourceOrg: input.sourceOrg,
             sourceUrl: input.sourceUrl,
+          });
+
+          const runId = await insertChallengeExtractionRun({
+            userId: ctx.user.id,
+            modelUsed: "gpt-4o-mini",
+            sourceOrg: input.sourceOrg,
+            sourceUrl: input.sourceUrl,
+            promptKey,
+            promptVersion,
+            promptSha256,
+            rawPrompt,
+            rawResponse,
+            status: "completed",
           });
 
           // Log successful extraction
@@ -93,6 +107,7 @@ export const appRouter = router({
 
           return {
             success: true,
+            runId,
             challenges: result.challenges,
             insertedIds,
           };
@@ -124,7 +139,13 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { discoverTechnologyPaths } = await import("./agents/techDiscoveryAgent");
-        const { getChallengeById, insertTechDiscoveryRun, insertTechPath, updateTechDiscoveryRunStatus } =
+        const {
+          getChallengeById,
+          insertTechDiscoveryRun,
+          insertTechPath,
+          updateTechDiscoveryRunStatus,
+          updateTechDiscoveryRunResult,
+        } =
           await import("./db");
         const { logAgentInteraction, createSuccessLog, createErrorLog } = await import(
           "./agents/logger"
@@ -146,7 +167,8 @@ export const appRouter = router({
         });
 
         try {
-          const { result, rawPrompt, rawResponse } = await discoverTechnologyPaths(challenge, {
+          const { result, rawPrompt, rawResponse, promptKey, promptVersion, promptSha256 } =
+            await discoverTechnologyPaths(challenge, {
             budgetConstraintEur: input.budgetConstraintEur,
           });
 
@@ -166,8 +188,15 @@ export const appRouter = router({
             )
           );
 
-          // Update run with results
-          await updateTechDiscoveryRunStatus(runId, "completed");
+          // Update run with results (store prompt + full response for auditability)
+          await updateTechDiscoveryRunResult(runId, {
+            promptKey,
+            promptVersion,
+            promptSha256,
+            rawPrompt,
+            fullResponse: rawResponse,
+            status: "completed",
+          });
 
           // Store technology paths
           for (let i = 0; i < result.technology_paths.length; i++) {
@@ -213,6 +242,44 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const { getTechPathsByChallengeId } = await import("./db");
         return getTechPathsByChallengeId(input.challengeId);
+      }),
+  }),
+
+  prompts: router({
+    listTemplates: protectedProcedure.query(async () => {
+      const { listPromptTemplates } = await import("./db");
+      const templates = await listPromptTemplates();
+      return templates.map((t) => ({
+        id: t.id,
+        key: t.key,
+        version: t.version,
+        agent: t.agent,
+        operation: t.operation,
+        publicTitle: t.publicTitle,
+        publicDescription: t.publicDescription,
+        sha256: t.sha256,
+        source: t.source,
+        createdAt: t.createdAt,
+      }));
+    }),
+    listUsed: protectedProcedure
+      .input(z.object({ limit: z.number().min(1).max(500).optional() }).optional())
+      .query(async ({ input }) => {
+        const { listPromptUsage } = await import("./db");
+        return listPromptUsage(input?.limit ?? 100);
+      }),
+    getTemplateContent: adminProcedure
+      .input(z.object({ key: z.string(), version: z.number() }))
+      .query(async ({ input }) => {
+        const { getPromptTemplateByKeyVersion } = await import("./db");
+        const template = await getPromptTemplateByKeyVersion(input.key, input.version);
+        if (!template) return null;
+        return {
+          key: template.key,
+          version: template.version,
+          sha256: template.sha256,
+          content: template.content,
+        };
       }),
   }),
 });

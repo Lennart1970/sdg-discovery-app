@@ -8,6 +8,13 @@
       "when": 1768142996491,
       "tag": "0000_puzzling_cammi",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1768148383500,
+      "tag": "0001_pretty_junta",
+      "breakpoints": true
     }
   ]
 }

@@ -7,8 +7,12 @@ import {
   InsertOrganization,
   InsertSourceFeed,
   InsertChallenge,
+  InsertChallengeExtractionRun,
   InsertTechDiscoveryRun,
-  InsertTechPath
+  InsertTechPath,
+  promptTemplates,
+  challengeExtractionRuns,
+  techDiscoveryRuns
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -161,11 +165,23 @@ export async function insertChallenge(challenge: InsertChallenge) {
   return result;
 }
 
+// Challenge Extraction Runs
+export async function insertChallengeExtractionRun(run: InsertChallengeExtractionRun): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db
+    .insert(challengeExtractionRuns)
+    .values(run)
+    .returning({ id: challengeExtractionRuns.id });
+  const insertId = result[0]?.id;
+  if (!insertId) throw new Error("Failed to get id from challenge_extraction_runs insert");
+  return Number(insertId);
+}
+
 // Tech Discovery Runs
 export async function insertTechDiscoveryRun(run: InsertTechDiscoveryRun): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { techDiscoveryRuns } = await import("../drizzle/schema");
   // PostgreSQL uses .returning() instead of insertId
   const result = await db.insert(techDiscoveryRuns).values(run).returning({ id: techDiscoveryRuns.id });
   const insertId = result[0]?.id;
@@ -183,17 +199,29 @@ export async function updateTechDiscoveryRunStatus(
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { techDiscoveryRuns } = await import("../drizzle/schema");
   await db
     .update(techDiscoveryRuns)
     .set({ status, errorMessage })
     .where(eq(techDiscoveryRuns.id, runId));
 }
 
+export async function updateTechDiscoveryRunResult(
+  runId: number,
+  fields: Partial<
+    Pick<
+      InsertTechDiscoveryRun,
+      "promptKey" | "promptVersion" | "promptSha256" | "rawPrompt" | "fullResponse" | "status" | "errorMessage"
+    >
+  >
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(techDiscoveryRuns).set(fields).where(eq(techDiscoveryRuns.id, runId));
+}
+
 export async function getTechDiscoveryRunsByChallengeId(challengeId: number) {
   const db = await getDb();
   if (!db) return [];
-  const { techDiscoveryRuns } = await import("../drizzle/schema");
   return db.select().from(techDiscoveryRuns).where(eq(techDiscoveryRuns.challengeId, challengeId));
 }
 
@@ -217,4 +245,64 @@ export async function getTechPathsByRunId(runId: number) {
   if (!db) return [];
   const { techPaths } = await import("../drizzle/schema");
   return db.select().from(techPaths).where(eq(techPaths.runId, runId));
+}
+
+// Prompts
+export async function listPromptTemplates() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(promptTemplates);
+}
+
+export async function getPromptTemplateByKeyVersion(key: string, version: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(promptTemplates)
+    .where(eq(promptTemplates.key, key))
+    .limit(50);
+  return result.find((r) => r.version === version);
+}
+
+export async function listPromptUsage(limit: number = 100) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const techRuns = await db
+    .select({
+      id: techDiscoveryRuns.id,
+      createdAt: techDiscoveryRuns.createdAt,
+      userId: techDiscoveryRuns.userId,
+      modelUsed: techDiscoveryRuns.modelUsed,
+      status: techDiscoveryRuns.status,
+      promptKey: techDiscoveryRuns.promptKey,
+      promptVersion: techDiscoveryRuns.promptVersion,
+      promptSha256: techDiscoveryRuns.promptSha256,
+    })
+    .from(techDiscoveryRuns)
+    .limit(limit);
+
+  const extractionRuns = await db
+    .select({
+      id: challengeExtractionRuns.id,
+      createdAt: challengeExtractionRuns.createdAt,
+      userId: challengeExtractionRuns.userId,
+      modelUsed: challengeExtractionRuns.modelUsed,
+      status: challengeExtractionRuns.status,
+      promptKey: challengeExtractionRuns.promptKey,
+      promptVersion: challengeExtractionRuns.promptVersion,
+      promptSha256: challengeExtractionRuns.promptSha256,
+    })
+    .from(challengeExtractionRuns)
+    .limit(limit);
+
+  // Normalize runType for frontend display without leaking details
+  const normalized = [
+    ...techRuns.map((r) => ({ ...r, runType: "technology_discovery" as const })),
+    ...extractionRuns.map((r) => ({ ...r, runType: "challenge_extractor" as const })),
+  ];
+
+  normalized.sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0));
+  return normalized.slice(0, limit);
 }

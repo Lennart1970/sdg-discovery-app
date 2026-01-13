@@ -1,4 +1,8 @@
 import { invokeLLM } from "../_core/llm";
+import {
+  getPromptRegistryEntry,
+  getPromptTemplateSha256,
+} from "../_core/prompts/registry";
 
 /**
  * JSON Schema for Technology Discovery structured output
@@ -84,35 +88,6 @@ const TECH_DISCOVERY_SCHEMA = {
 };
 
 /**
- * System prompt for Technology Discovery Agent
- */
-const SYSTEM_PROMPT = `You are a constraint-driven technology discovery agent specializing in finding feasible technology pathways for sustainability challenges.
-
-Your approach:
-1. Start with the problem, not the solution
-2. Reason from functions → principles → technology classes
-3. Stay under €10,000 budget constraint
-4. Use existing, widely available technology
-5. Never recommend specific brands or products
-6. Focus on human-scale, locally feasible solutions
-
-Key constraints:
-- Budget: €10,000 maximum
-- Technology: Must already exist and be widely available
-- Scale: Human-scale, locally implementable
-- Sources: Second-hand machinery, open hardware, commodity electronics, DIY tooling
-- Output: Technology CLASSES only (e.g., "pressure vessels", "solar panels"), NOT brands or SKUs
-
-Your reasoning chain:
-Challenge → Core Functions → Underlying Principles → Technology Classes → Plausible Paths
-
-Each path must include:
-- Technology classes (NOT products)
-- Cost band estimate
-- Feasibility explanation
-- Risks and unknowns`;
-
-/**
  * Generate user prompt for a specific challenge
  */
 function generateUserPrompt(challenge: {
@@ -183,13 +158,20 @@ export async function discoverTechnologyPaths(
   result: TechDiscoveryResult;
   rawPrompt: string;
   rawResponse: string;
+  promptKey: string;
+  promptVersion: number;
+  promptSha256: string;
 }> {
   const model = options.model || "gpt-4o-mini";
   const budgetConstraintEur = options.budgetConstraintEur || 10000;
 
+  const promptKey = "technology_discovery.discover_paths";
+  const promptEntry = await getPromptRegistryEntry(promptKey);
+  const promptSha256 = getPromptTemplateSha256(promptEntry);
+
   // Generate prompts
   const userPrompt = generateUserPrompt(challenge);
-  const systemPromptWithBudget = SYSTEM_PROMPT.replace(
+  const systemPromptWithBudget = promptEntry.systemPrompt.replace(
     "€10,000 maximum",
     `€${budgetConstraintEur.toLocaleString()} maximum`
   );
@@ -236,5 +218,8 @@ export async function discoverTechnologyPaths(
     result,
     rawPrompt: `SYSTEM:\n${systemPromptWithBudget}\n\nUSER:\n${userPrompt}`,
     rawResponse,
+    promptKey,
+    promptVersion: promptEntry.version,
+    promptSha256,
   };
 }

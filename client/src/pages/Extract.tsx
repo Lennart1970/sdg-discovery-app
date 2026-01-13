@@ -65,7 +65,7 @@ export default function Extract() {
           </CardHeader>
           <CardContent className="space-y-4">
             <Button className="w-full" asChild>
-              <a href={getLoginUrl()}>Sign In</a>
+              <a href={getLoginUrl("/extract")}>Sign In</a>
             </Button>
             <Link href="/">
               <Button variant="outline" className="w-full">

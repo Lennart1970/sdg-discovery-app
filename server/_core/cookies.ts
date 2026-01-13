@@ -39,10 +39,15 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  const secure = isSecureRequest(req);
+  // SameSite=None cookies are rejected by modern browsers unless Secure=true.
+  // For local dev over http://, fall back to Lax so the session cookie is accepted.
+  const sameSite: CookieOptions["sameSite"] = secure ? "none" : "lax";
+
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    sameSite,
+    secure,
   };
 }

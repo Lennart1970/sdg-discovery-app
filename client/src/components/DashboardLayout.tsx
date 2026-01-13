@@ -30,6 +30,7 @@ import { Button } from "./ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "Page 1", path: "/" },
   { icon: Users, label: "Page 2", path: "/some-path" },
+  { icon: LayoutDashboard, label: "Prompts", path: "/prompts" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -70,7 +71,7 @@ export default function DashboardLayout({
           </div>
           <Button
             onClick={() => {
-              window.location.href = getLoginUrl();
+              window.location.href = getLoginUrl(window.location.pathname);
             }}
             size="lg"
             className="w-full shadow-lg hover:shadow-xl transition-all"

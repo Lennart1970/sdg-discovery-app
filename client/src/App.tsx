@@ -7,12 +7,16 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Journey from "./pages/Journey";
 import Pathway from "./pages/Pathway";
 import Extract from "./pages/Extract";
+import Login from "./pages/Login";
+import Prompts from "./pages/Prompts";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Journey} />
+      <Route path="/login" component={Login} />
+      <Route path="/prompts" component={Prompts} />
       <Route path="/pathway/:id" component={Pathway} />
       <Route path="/extract" component={Extract} />
       <Route path={"/404"} component={NotFound} />

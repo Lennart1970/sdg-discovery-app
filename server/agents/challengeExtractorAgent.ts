@@ -1,4 +1,8 @@
 import { invokeLLM } from "../_core/llm";
+import {
+  getPromptRegistryEntry,
+  getPromptTemplateSha256,
+} from "../_core/prompts/registry";
 
 /**
  * JSON Schema for Challenge Extraction structured output
@@ -53,33 +57,6 @@ const CHALLENGE_EXTRACTION_SCHEMA = {
 };
 
 /**
- * System prompt for Challenge Extractor Agent
- */
-const SYSTEM_PROMPT = `You are a challenge extraction agent specializing in identifying solution-free sustainability challenges from SDG-related documents.
-
-Your task:
-1. Extract clear, actionable challenges from the provided text
-2. Focus on PROBLEMS, not solutions
-3. Filter out marketing, proposals, and vaporware
-4. Identify SDG goals, geography, target groups, and sectors
-
-Key rules:
-- Extract challenges that are solution-free (no proposed technologies or products)
-- Avoid challenges that are too vague or too specific
-- Focus on challenges that could benefit from technology solutions under €10k
-- Each challenge should be independently understandable
-- Confidence score reflects how well-defined and actionable the challenge is
-
-Output format:
-- Title: Concise summary (max 100 chars)
-- Statement: Clear problem description (2-3 sentences)
-- SDG Goals: Relevant goals (comma-separated numbers)
-- Geography: Location or region
-- Target Groups: Affected populations
-- Sectors: Relevant sectors
-- Confidence: 0-100 score`;
-
-/**
  * Generate user prompt for challenge extraction
  */
 function generateUserPrompt(text: string, sourceOrg?: string, sourceUrl?: string): string {
@@ -130,8 +107,15 @@ export async function extractChallenges(
   result: ChallengeExtractionResult;
   rawPrompt: string;
   rawResponse: string;
+  promptKey: string;
+  promptVersion: number;
+  promptSha256: string;
 }> {
   const model = options.model || "gpt-4o-mini";
+
+  const promptKey = "challenge_extractor.extract_challenges";
+  const promptEntry = await getPromptRegistryEntry(promptKey);
+  const promptSha256 = getPromptTemplateSha256(promptEntry);
 
   // Generate prompts
   const userPrompt = generateUserPrompt(text, options.sourceOrg, options.sourceUrl);
@@ -139,7 +123,7 @@ export async function extractChallenges(
   // Call OpenAI with structured outputs
   const response = await invokeLLM({
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: promptEntry.systemPrompt },
       { role: "user", content: userPrompt },
     ],
     response_format: {
@@ -168,7 +152,10 @@ export async function extractChallenges(
 
   return {
     result,
-    rawPrompt: `SYSTEM:\n${SYSTEM_PROMPT}\n\nUSER:\n${userPrompt}`,
+    rawPrompt: `SYSTEM:\n${promptEntry.systemPrompt}\n\nUSER:\n${userPrompt}`,
     rawResponse,
+    promptKey,
+    promptVersion: promptEntry.version,
+    promptSha256,
   };
 }

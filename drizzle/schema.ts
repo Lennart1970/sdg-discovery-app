@@ -1,8 +1,35 @@
-import { serial, pgEnum, pgTable, text, timestamp, varchar, integer } from "drizzle-orm/pg-core";
+import { serial, pgEnum, pgTable, text, timestamp, varchar, integer, uniqueIndex } from "drizzle-orm/pg-core";
 
 // Create enum types for PostgreSQL
 export const roleEnum = pgEnum("role", ["user", "admin"]);
 export const statusEnum = pgEnum("status", ["completed", "failed", "in_progress"]);
+
+/**
+ * Prompt templates table - versioned prompt registry (synced from repo)
+ */
+export const promptTemplates = pgTable(
+  "prompt_templates",
+  {
+    id: serial("id").primaryKey(),
+    key: varchar("key", { length: 200 }).notNull(),
+    version: integer("version").notNull(),
+    agent: varchar("agent", { length: 100 }).notNull(),
+    operation: varchar("operation", { length: 100 }).notNull(),
+    publicTitle: varchar("public_title", { length: 255 }).notNull(),
+    publicDescription: text("public_description").notNull(),
+    content: text("content").notNull(),
+    sha256: varchar("sha256", { length: 64 }).notNull(),
+    source: varchar("source", { length: 50 }).notNull().default("git"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    keyVersionIdx: uniqueIndex("prompt_templates_key_version_idx").on(t.key, t.version),
+    shaIdx: uniqueIndex("prompt_templates_sha256_idx").on(t.sha256),
+  })
+);
+
+export type PromptTemplate = typeof promptTemplates.$inferSelect;
+export type InsertPromptTemplate = typeof promptTemplates.$inferInsert;
 
 /**
  * Core user table backing auth flow.
@@ -84,6 +111,28 @@ export type Challenge = typeof challenges.$inferSelect;
 export type InsertChallenge = typeof challenges.$inferInsert;
 
 /**
+ * Challenge extraction runs table - stores metadata for each extraction run
+ */
+export const challengeExtractionRuns = pgTable("challenge_extraction_runs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  modelUsed: varchar("model_used", { length: 100 }).notNull(),
+  sourceOrg: varchar("source_org", { length: 255 }),
+  sourceUrl: varchar("source_url", { length: 1000 }),
+  promptKey: varchar("prompt_key", { length: 200 }),
+  promptVersion: integer("prompt_version"),
+  promptSha256: varchar("prompt_sha256", { length: 64 }),
+  rawPrompt: text("raw_prompt"),
+  rawResponse: text("raw_response"),
+  status: statusEnum("status").default("in_progress").notNull(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ChallengeExtractionRun = typeof challengeExtractionRuns.$inferSelect;
+export type InsertChallengeExtractionRun = typeof challengeExtractionRuns.$inferInsert;
+
+/**
  * Technology discovery runs table - stores metadata for each discovery run
  */
 export const techDiscoveryRuns = pgTable("tech_discovery_runs", {
@@ -92,6 +141,9 @@ export const techDiscoveryRuns = pgTable("tech_discovery_runs", {
   userId: integer("user_id").references(() => users.id),
   modelUsed: varchar("model_used", { length: 100 }).notNull(),
   budgetConstraintEur: integer("budget_constraint_eur").notNull().default(10000),
+  promptKey: varchar("prompt_key", { length: 200 }),
+  promptVersion: integer("prompt_version"),
+  promptSha256: varchar("prompt_sha256", { length: 64 }),
   challengeSummary: text("challenge_summary"),
   coreFunctions: text("core_functions"),
   underlyingPrinciples: text("underlying_principles"),

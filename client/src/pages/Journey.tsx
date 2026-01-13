@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Plus, Globe, Users, Target } from "lucide-react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { getLoginUrl } from "@/const";
 
 /**
  * Journey page - Lists all sustainability challenges
@@ -37,6 +38,11 @@ export default function Journey() {
                 <span className="text-sm text-muted-foreground">
                   {user?.name || user?.email}
                 </span>
+                <Link href="/prompts">
+                  <Button size="sm" variant="outline">
+                    Prompts
+                  </Button>
+                </Link>
                 <Link href="/extract">
                   <Button size="sm">
                     <Plus className="h-4 w-4 mr-2" />
@@ -46,9 +52,7 @@ export default function Journey() {
               </>
             ) : (
               <Button variant="outline" size="sm" asChild>
-                <a href={`${import.meta.env.VITE_OAUTH_PORTAL_URL}?app_id=${import.meta.env.VITE_APP_ID}`}>
-                  Sign In
-                </a>
+                <a href={getLoginUrl(window.location.pathname)}>Sign In</a>
               </Button>
             )}
           </div>
@@ -73,6 +77,13 @@ export default function Journey() {
                 Extract New Challenge
               </Button>
             </Link>
+            {isAuthenticated ? (
+              <Link href="/prompts">
+                <Button size="lg" variant="outline">
+                  Prompts
+                </Button>
+              </Link>
+            ) : null}
             <Link href="/about">
               <Button size="lg" variant="outline">
                 Learn More

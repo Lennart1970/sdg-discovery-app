@@ -11,10 +11,10 @@
     "notes": "Seed source. Use sitemap discovery and filter for documents/reports.",
     "endpoints": [
       {
-        "endpointUrl": "https://www.rijksoverheid.nl/sitemap.xml",
-        "endpointType": "sitemap",
+        "endpointUrl": "xai:grok-discovery",
+        "endpointType": "api",
         "priority": 10,
-        "parserHint": "{\"includePathPrefixes\":[\"/documenten/\",\"/publicaties/\",\"/rapporten/\"],\"excludePathPrefixes\":[\"/onderwerpen/\",\"/actueel/\"]}"
+        "parserHint": "{\"grokQuery\":\"site:rijksoverheid.nl (documenten OR rapporten OR publicaties) (ocw OR \\\"Onderwijs, Cultuur en Wetenschap\\\") (SDG OR duurzame ontwikkeling OR duurzaamheid) (project OR programma OR evaluatie) filetype:pdf\",\"maxUrls\":50,\"includePathPrefixes\":[\"/documenten/\",\"/publicaties/\",\"/rapporten/\"],\"excludePathPrefixes\":[\"/onderwerpen/\",\"/actueel/\"]}"
       }
     ]
   }

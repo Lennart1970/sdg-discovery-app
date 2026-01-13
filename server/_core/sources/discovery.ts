@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import * as db from "../../db";
 import { documents, sourceEndpoints, sources } from "../../../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { grokSuggestUrls } from "../xai";
 
 function sha256Hex(buf: Uint8Array): string {
   return crypto.createHash("sha256").update(buf).digest("hex");
@@ -58,6 +59,8 @@ function normalizeUrl(url: string): string {
 type ParserHint = {
   includePathPrefixes?: string[];
   excludePathPrefixes?: string[];
+  grokQuery?: string;
+  maxUrls?: number;
 };
 
 function parseParserHint(parserHint: string | null | undefined): ParserHint {
@@ -134,6 +137,31 @@ async function crawlSitemapUrls(
   return out;
 }
 
+async function isUrlFetchable(url: string): Promise<boolean> {
+  try {
+    const resp = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      headers: { "user-agent": "sdg-discovery-app/1.0 (+url-validator)" },
+    });
+    if (resp.status === 405 || resp.status === 403) {
+      // Some servers disallow HEAD; fall back to GET with small range.
+      const getResp = await fetch(url, {
+        method: "GET",
+        redirect: "follow",
+        headers: {
+          "user-agent": "sdg-discovery-app/1.0 (+url-validator)",
+          range: "bytes=0-1024",
+        },
+      });
+      return getResp.ok;
+    }
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function discoverDocumentsFromEndpoint(endpointId: number): Promise<{
   discovered: number;
   kept: number;
@@ -162,6 +190,19 @@ export async function discoverDocumentsFromEndpoint(endpointId: number): Promise
       maxUrls: 5000,
       rateLimitMs,
     });
+  } else if (endpoint.endpointType === "api") {
+    const q = hint.grokQuery;
+    if (!q) {
+      throw new Error("Missing parserHint.grokQuery for api endpoint");
+    }
+    const candidates = await grokSuggestUrls({ query: q, maxUrls: hint.maxUrls ?? 50 });
+    // Validate reachability to avoid storing dead/blocked URLs.
+    const ok: string[] = [];
+    for (const u of candidates) {
+      if (ok.length >= (hint.maxUrls ?? 50)) break;
+      if (await isUrlFetchable(u)) ok.push(u);
+    }
+    all = ok;
   } else {
     const xml = await fetchXml(endpoint.endpointUrl);
     all = extractLocsFromXml(xml).map(normalizeUrl);

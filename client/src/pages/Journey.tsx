@@ -56,9 +56,21 @@ export default function Journey() {
                 </Link>
               </>
             ) : (
-              <Button variant="outline" size="sm" asChild>
-                <a href={getLoginUrl(window.location.pathname)}>Sign In</a>
-              </Button>
+              <>
+                <Link href="/sources">
+                  <Button variant="outline" size="sm">
+                    Sources
+                  </Button>
+                </Link>
+                <Link href="/prompts">
+                  <Button variant="outline" size="sm">
+                    Prompts
+                  </Button>
+                </Link>
+                <Button variant="outline" size="sm" asChild>
+                  <a href={getLoginUrl(window.location.pathname)}>Sign In</a>
+                </Button>
+              </>
             )}
           </div>
         </div>

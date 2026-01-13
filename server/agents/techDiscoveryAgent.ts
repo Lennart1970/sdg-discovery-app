@@ -4,6 +4,10 @@ import {
   getPromptTemplateSha256,
 } from "../_core/prompts/registry";
 
+function renderTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => vars[key] ?? "");
+}
+
 /**
  * JSON Schema for Technology Discovery structured output
  * Enforces €10k budget constraint and technology class format
@@ -88,7 +92,7 @@ const TECH_DISCOVERY_SCHEMA = {
 };
 
 /**
- * Generate user prompt for a specific challenge
+ * Generate user prompt for a specific challenge (from versioned registry template)
  */
 function generateUserPrompt(challenge: {
   title: string;
@@ -170,7 +174,18 @@ export async function discoverTechnologyPaths(
   const promptSha256 = getPromptTemplateSha256(promptEntry);
 
   // Generate prompts
-  const userPrompt = generateUserPrompt(challenge);
+  const userPrompt =
+    promptEntry.userTemplate?.length
+      ? renderTemplate(promptEntry.userTemplate, {
+          title: challenge.title,
+          statement: challenge.statement,
+          sdgGoalsLine: challenge.sdgGoals ? `SDG Goals: ${challenge.sdgGoals}` : "",
+          geographyLine: challenge.geography ? `Geography: ${challenge.geography}` : "",
+          targetGroupsLine: challenge.targetGroups ? `Target Groups: ${challenge.targetGroups}` : "",
+          sectorsLine: challenge.sectors ? `Sectors: ${challenge.sectors}` : "",
+          budgetConstraintEur: String(budgetConstraintEur),
+        })
+      : generateUserPrompt(challenge);
   const systemPromptWithBudget = promptEntry.systemPrompt.replace(
     "€10,000 maximum",
     `€${budgetConstraintEur.toLocaleString()} maximum`

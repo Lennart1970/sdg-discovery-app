@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Spinner } from "@/components/ui/spinner";
 
 type SelectedTemplate = { key: string; version: number; sha256?: string };
 
@@ -18,16 +22,68 @@ export default function Prompts() {
 
   const [selected, setSelected] = useState<SelectedTemplate | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [templateFilter, setTemplateFilter] = useState("");
+  const [usageFilter, setUsageFilter] = useState("");
 
   const contentQuery = trpc.prompts.getTemplateContent.useQuery(
     selected ? { key: selected.key, version: selected.version } : { key: "", version: 0 },
     { enabled: dialogOpen && Boolean(selected) && isAdmin }
   );
 
+  const filteredTemplates = useMemo(() => {
+    const q = templateFilter.trim().toLowerCase();
+    const rows = templatesQuery.data ?? [];
+    const sorted = [...rows].sort((a, b) => {
+      if (a.key !== b.key) return a.key.localeCompare(b.key);
+      return b.version - a.version;
+    });
+    if (!q) return sorted;
+    return sorted.filter((t) => {
+      const hay = [
+        t.publicTitle,
+        t.publicDescription,
+        t.agent,
+        t.operation,
+        t.key,
+        String(t.version),
+        t.sha256,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [templateFilter, templatesQuery.data]);
+
+  const filteredUsage = useMemo(() => {
+    const q = usageFilter.trim().toLowerCase();
+    const rows = usedQuery.data ?? [];
+    const sorted = [...rows].sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0));
+    if (!q) return sorted;
+    return sorted.filter((r) => {
+      const hay = [
+        r.runType,
+        String(r.id),
+        r.modelUsed,
+        r.status,
+        r.promptKey ?? "",
+        String(r.promptVersion ?? ""),
+        r.promptSha256 ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [usageFilter, usedQuery.data]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="size-4" />
+          Loading…
+        </div>
       </div>
     );
   }
@@ -52,11 +108,12 @@ export default function Prompts() {
           <h1 className="text-2xl font-semibold tracking-tight">Prompts</h1>
           <p className="text-sm text-muted-foreground">
             This page shows prompt templates and which ones were used in runs. Full prompt text is hidden by default.
+            {isAdmin ? " (You are an admin: you can reveal full prompts.)" : ""}
           </p>
         </div>
 
         <Tabs defaultValue="templates">
-          <TabsList>
+          <TabsList className="w-full justify-start">
             <TabsTrigger value="templates">Templates</TabsTrigger>
             <TabsTrigger value="used">Used in runs</TabsTrigger>
           </TabsList>
@@ -68,27 +125,75 @@ export default function Prompts() {
                 <CardDescription>Public descriptions are safe for UI display.</CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    {templatesQuery.isLoading ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Spinner className="size-4" />
+                        Loading templates…
+                      </span>
+                    ) : (
+                      <span>
+                        Showing <span className="font-medium text-foreground">{filteredTemplates.length}</span>{" "}
+                        templates
+                      </span>
+                    )}
+                  </div>
+                  <div className="w-full md:w-[420px]">
+                    <Input
+                      placeholder="Search templates (title, key, agent, sha…)…"
+                      value={templateFilter}
+                      onChange={(e) => setTemplateFilter(e.target.value)}
+                    />
+                  </div>
+                </div>
+
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Title</TableHead>
                       <TableHead>Description</TableHead>
-                      <TableHead>Agent/Op</TableHead>
+                      <TableHead>Agent / Op</TableHead>
                       <TableHead>Key</TableHead>
                       <TableHead>Version</TableHead>
                       <TableHead>SHA</TableHead>
+                      <TableHead>Created</TableHead>
                       <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(templatesQuery.data ?? []).map((t) => (
+                    {templatesQuery.isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
+                          <span className="inline-flex items-center gap-2">
+                            <Spinner className="size-4" />
+                            Loading…
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredTemplates.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
+                          No templates found.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredTemplates.map((t) => (
                       <TableRow key={`${t.key}@${t.version}`}>
                         <TableCell className="font-medium">{t.publicTitle}</TableCell>
                         <TableCell className="whitespace-normal max-w-[520px]">{t.publicDescription}</TableCell>
-                        <TableCell>{t.agent}/{t.operation}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant="secondary">{t.agent}</Badge>
+                            <Badge variant="outline">{t.operation}</Badge>
+                          </div>
+                        </TableCell>
                         <TableCell className="font-mono text-xs">{t.key}</TableCell>
                         <TableCell>{t.version}</TableCell>
                         <TableCell className="font-mono text-xs">{t.sha256.slice(0, 10)}…</TableCell>
+                        <TableCell className="text-xs">
+                          {t.createdAt ? new Date(t.createdAt).toLocaleString() : "-"}
+                        </TableCell>
                         <TableCell className="text-right">
                           {isAdmin ? (
                             <Button
@@ -106,7 +211,8 @@ export default function Prompts() {
                           )}
                         </TableCell>
                       </TableRow>
-                    ))}
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -120,6 +226,28 @@ export default function Prompts() {
                 <CardDescription>Recent prompt usage from extraction and discovery runs.</CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    {usedQuery.isLoading ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Spinner className="size-4" />
+                        Loading usage…
+                      </span>
+                    ) : (
+                      <span>
+                        Showing <span className="font-medium text-foreground">{filteredUsage.length}</span> runs
+                      </span>
+                    )}
+                  </div>
+                  <div className="w-full md:w-[420px]">
+                    <Input
+                      placeholder="Search runs (key, sha, model, status…)…"
+                      value={usageFilter}
+                      onChange={(e) => setUsageFilter(e.target.value)}
+                    />
+                  </div>
+                </div>
+
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -133,12 +261,34 @@ export default function Prompts() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(usedQuery.data ?? []).map((r) => (
+                    {usedQuery.isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                          <span className="inline-flex items-center gap-2">
+                            <Spinner className="size-4" />
+                            Loading…
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredUsage.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                          No runs found yet. Run one extraction and one tech discovery to populate this table.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredUsage.map((r) => (
                       <TableRow key={`${r.runType}-${r.id}`}>
-                        <TableCell>{r.runType}</TableCell>
-                        <TableCell>{r.id}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{r.runType}</Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{r.id}</TableCell>
                         <TableCell>{r.modelUsed}</TableCell>
-                        <TableCell>{r.status}</TableCell>
+                        <TableCell>
+                          <Badge variant={r.status === "completed" ? "default" : r.status === "failed" ? "destructive" : "outline"}>
+                            {r.status}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="font-mono text-xs">
                           {r.promptKey ? `${r.promptKey}@${r.promptVersion ?? "?"}` : "-"}
                         </TableCell>
@@ -149,7 +299,8 @@ export default function Prompts() {
                           {r.createdAt ? new Date(r.createdAt).toLocaleString() : "-"}
                         </TableCell>
                       </TableRow>
-                    ))}
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -172,11 +323,27 @@ export default function Prompts() {
               Visible to admins only. Key: {selected?.key} v{selected?.version}
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-md border bg-muted/30 p-3 max-h-[60vh] overflow-auto">
-            <pre className="text-xs whitespace-pre-wrap">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              {selected?.sha256 ? <>SHA: <span className="font-mono">{selected.sha256.slice(0, 12)}…</span></> : null}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!contentQuery.data?.content}
+              onClick={async () => {
+                if (!contentQuery.data?.content) return;
+                await navigator.clipboard.writeText(contentQuery.data.content);
+              }}
+            >
+              Copy
+            </Button>
+          </div>
+          <ScrollArea className="h-[60vh] rounded-md border bg-muted/30">
+            <pre className="p-3 text-xs whitespace-pre-wrap">
               {contentQuery.data?.content ?? (contentQuery.isLoading ? "Loading…" : "No content")}
             </pre>
-          </div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>

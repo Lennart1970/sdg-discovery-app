@@ -4,6 +4,10 @@ import {
   getPromptTemplateSha256,
 } from "../_core/prompts/registry";
 
+function renderTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => vars[key] ?? "");
+}
+
 /**
  * JSON Schema for Challenge Extraction structured output
  */
@@ -57,25 +61,18 @@ const CHALLENGE_EXTRACTION_SCHEMA = {
 };
 
 /**
- * Generate user prompt for challenge extraction
+ * Generate user prompt for challenge extraction (from versioned registry template)
  */
 function generateUserPrompt(text: string, sourceOrg?: string, sourceUrl?: string): string {
+  // Fallback is kept to avoid runtime crashes if registry.json is misconfigured.
+  // Prefer using the `userTemplate` from the prompt registry entry (version controlled).
   return `Extract sustainability challenges from the following document:
 
 ${sourceOrg ? `Source Organization: ${sourceOrg}` : ""}
 ${sourceUrl ? `Source URL: ${sourceUrl}` : ""}
 
 Document Text:
-${text}
-
-Task:
-1. Identify all clear, actionable sustainability challenges
-2. Extract only solution-free problem statements
-3. Filter out marketing content, proposals, and vague statements
-4. Provide SDG goals, geography, target groups, and sectors where identifiable
-5. Assign confidence scores based on clarity and actionability
-
-Extract all relevant challenges from this document.`;
+${text}`;
 }
 
 export interface ExtractedChallenge {
@@ -118,7 +115,14 @@ export async function extractChallenges(
   const promptSha256 = getPromptTemplateSha256(promptEntry);
 
   // Generate prompts
-  const userPrompt = generateUserPrompt(text, options.sourceOrg, options.sourceUrl);
+  const userPrompt =
+    promptEntry.userTemplate?.length
+      ? renderTemplate(promptEntry.userTemplate, {
+          text,
+          sourceOrgLine: options.sourceOrg ? `Source Organization: ${options.sourceOrg}` : "",
+          sourceUrlLine: options.sourceUrl ? `Source URL: ${options.sourceUrl}` : "",
+        })
+      : generateUserPrompt(text, options.sourceOrg, options.sourceUrl);
 
   // Call OpenAI with structured outputs
   const response = await invokeLLM({

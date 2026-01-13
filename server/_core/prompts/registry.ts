@@ -47,11 +47,12 @@ export async function getPromptRegistryEntry(key: string): Promise<PromptRegistr
   if (!_cache) {
     _cache = await loadPromptRegistry();
   }
-  const found = _cache.find((e) => e.key === key);
-  if (!found) {
+  const matches = _cache.filter((e) => e.key === key);
+  if (matches.length === 0) {
     throw new Error(`[Prompts] Missing registry entry for key: ${key}`);
   }
-  return found;
+  // If multiple versions exist, pick the latest.
+  return matches.reduce((latest, cur) => (cur.version > latest.version ? cur : latest), matches[0]!);
 }
 
 export function getPromptTemplateSha256(entry: PromptRegistryEntry): string {

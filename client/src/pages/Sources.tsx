@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
+import { toast } from "sonner";
 
 export default function Sources() {
   const { user, loading } = useAuth();
@@ -215,7 +216,12 @@ export default function Sources() {
                             disabled={discoverMutation.isPending}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              await discoverMutation.mutateAsync({ endpointId: ep.id });
+                              try {
+                                const res = await discoverMutation.mutateAsync({ endpointId: ep.id });
+                                toast.success(`Discovered ${res.kept} new documents (scanned ${res.discovered}).`);
+                              } catch (err: any) {
+                                toast.error(err?.message ?? "Discovery failed");
+                              }
                             }}
                           >
                             {discoverMutation.isPending ? "Discovering…" : "Discover"}

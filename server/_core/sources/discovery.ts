@@ -8,6 +8,10 @@ function sha256Hex(buf: Uint8Array): string {
   return crypto.createHash("sha256").update(buf).digest("hex");
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function extractLocsFromXml(xml: string): string[] {
   // Minimal sitemap/rss XML parsing via regex (fast + no extra deps).
   // We intentionally keep this conservative: only extract <loc> and <link> contents.
@@ -34,6 +38,10 @@ function extractLocsFromXml(xml: string): string[] {
   while ((m = reHref.exec(xml))) push(m[1]);
 
   return out;
+}
+
+function isSitemapIndex(xml: string): boolean {
+  return /<sitemapindex[\s>]/i.test(xml);
 }
 
 function normalizeUrl(url: string): string {
@@ -76,6 +84,56 @@ function passesPathFilters(url: string, hint: ParserHint): boolean {
   }
 }
 
+async function fetchXml(url: string): Promise<string> {
+  const resp = await fetch(url, {
+    headers: { "user-agent": "sdg-discovery-app/1.0 (+source-discovery)" },
+  });
+  if (!resp.ok) throw new Error(`Failed to fetch: ${resp.status} ${resp.statusText}`);
+  return await resp.text();
+}
+
+async function crawlSitemapUrls(
+  startUrl: string,
+  opts: { maxDepth: number; maxUrls: number; rateLimitMs: number }
+): Promise<string[]> {
+  const seen: Record<string, true> = {};
+  const out: string[] = [];
+
+  // queue of sitemap URLs to fetch
+  const queue: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }];
+
+  while (queue.length > 0) {
+    const item = queue.shift()!;
+    if (item.depth > opts.maxDepth) continue;
+
+    const xml = await fetchXml(item.url);
+    const locs = extractLocsFromXml(xml).map(normalizeUrl);
+
+    if (isSitemapIndex(xml) && item.depth < opts.maxDepth) {
+      // locs point to other sitemaps
+      for (const u of locs) {
+        if (seen[u]) continue;
+        seen[u] = true;
+        queue.push({ url: u, depth: item.depth + 1 });
+      }
+    } else {
+      // urlset (or unknown): locs are final URLs
+      for (const u of locs) {
+        if (out.length >= opts.maxUrls) return out;
+        if (seen[u]) continue;
+        seen[u] = true;
+        out.push(u);
+      }
+    }
+
+    if (opts.rateLimitMs > 0) {
+      await sleep(opts.rateLimitMs);
+    }
+  }
+
+  return out;
+}
+
 export async function discoverDocumentsFromEndpoint(endpointId: number): Promise<{
   discovered: number;
   kept: number;
@@ -92,14 +150,23 @@ export async function discoverDocumentsFromEndpoint(endpointId: number): Promise
   const source = sourceRows[0];
   if (!source) throw new Error("Source not found");
 
-  const resp = await fetch(endpoint.endpointUrl, {
-    headers: { "user-agent": "sdg-discovery-app/1.0 (+source-discovery)" },
-  });
-  if (!resp.ok) throw new Error(`Failed to fetch endpoint: ${resp.status} ${resp.statusText}`);
-  const xml = await resp.text();
-
-  const all = extractLocsFromXml(xml).map(normalizeUrl);
   const hint = parseParserHint(endpoint.parserHint);
+  const rateLimitMs = Number(source.rateLimitMs ?? 0);
+
+  let all: string[] = [];
+  if (endpoint.endpointType === "sitemap") {
+    // Most large sites use a sitemap index that points to many other sitemaps.
+    // We recurse a bit so "Discover" actually yields document URLs.
+    all = await crawlSitemapUrls(endpoint.endpointUrl, {
+      maxDepth: 2,
+      maxUrls: 5000,
+      rateLimitMs,
+    });
+  } else {
+    const xml = await fetchXml(endpoint.endpointUrl);
+    all = extractLocsFromXml(xml).map(normalizeUrl);
+  }
+
   const filtered = all.filter((u) => passesPathFilters(u, hint));
 
   let kept = 0;

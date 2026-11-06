@@ -157,6 +157,10 @@ This is a **directional intelligence system**, not a product recommendation engi
 
 See `todo.md` for planned features and improvements.
 
+## Colony home (unsdg)
+
+This repository is also the **unsdg colony home**. Lanes (fixed specialisms), rules, and status live under [`lanes/`](lanes/README.md). App code above stays the discovery platform; colony docs do not replace it.
+
 ## License
 
 MIT
